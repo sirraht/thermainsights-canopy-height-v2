@@ -143,6 +143,7 @@ def parse_args():
     parser.add_argument('--checkpoint', type=str, help='CHM pred checkpoint file', default='saved_checkpoints/compressed_SSLlarge.pth')
     parser.add_argument('--preprocessed_dir', type=str, required=True, help='Directory for preprocessed predictions.')
     parser.add_argument('--image_dir', type=str, help='Directory containing input aerial tiles', default='./data/images/')
+    parser.add_argument('--normnet', type=str, help='Path to normalization network')
     args = parser.parse_args()
     return args
 
