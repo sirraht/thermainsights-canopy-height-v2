@@ -154,6 +154,15 @@ def main():
     updated_state_dict = {k.replace('backbone.', ''): v for k, v in state_dict.items()}
     model_norm = RNet(n_classes=6)
     model_norm.load_state_dict(updated_state_dict)
+    
+    print("Starting evaluation...")
+    evaluate(
+        model=None,  # Placeholder for the actual model
+        norm=None,   # Placeholder for normalization function
+        model_norm=model_norm, 
+        preprocessed_dir=args.preprocessed_dir, 
+        image_dir=args.image_dir
+    )
 
 if __name__ == '__main__':
     main()
