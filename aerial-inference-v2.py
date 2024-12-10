@@ -123,7 +123,7 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
             reassembled_image = np.zeros((img_height, img_width), dtype=np.float32)
             
             for patch in patches:
-                img = patch['img'].unsqueeze(0).to(device)  # Add batch dimension
+                img = patch['img'].unsqueeze(0).to(device)
                 x_idx, y_idx = patch['x_idx'], patch['y_idx']
                 
                 img_norm = norm(img)
@@ -134,51 +134,25 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
                 h, w = pred_img.shape
                 reassembled_image[y_idx:y_idx+h, x_idx:x_idx+w] = pred_img
 
-            # Save the reassembled image as a single output file
             reassembled_image_pil = Image.fromarray(reassembled_image.astype('float32'), mode='F')
             output_path = output_images_dir / (Path(img_path).stem + '_reassembled.tif')
             reassembled_image_pil.save(output_path)
-
-    print(f"Reassembled images saved under {output_images_dir}")
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run canopy height inference on aerial images.')
     parser.add_argument('--checkpoint', type=str, help='CHM pred checkpoint file', default='saved_checkpoints/compressed_SSLlarge.pth')
     parser.add_argument('--preprocessed_dir', type=str, required=True, help='Directory for preprocessed predictions.')
-    parser.add_argument('--trained_rgb', action='store_true', help='Set if model was finetuned on aerial data')
-    parser.add_argument('--normnet', type=str, help='Path to normalization network', default='saved_checkpoints/aerial_normalization_quantiles_predictor.ckpt')
-    parser.add_argument('--normtype', type=int, help='0: no norm; 1: old norm; 2: new norm', default=2) 
-    parser.add_argument('--display', action='store_true', help='If set, save additional PNG visualizations.')
     parser.add_argument('--image_dir', type=str, help='Directory containing input aerial tiles', default='./data/images/')
     args = parser.parse_args()
     return args
 
 def main():
     args = parse_args()
-    device = 'cuda:0' if 'compressed' not in args.checkpoint else 'cpu'
-    
     ckpt = torch.load(args.normnet, map_location='cpu')
     state_dict = ckpt['state_dict']
+    updated_state_dict = {k.replace('backbone.', ''): v for k, v in state_dict.items()}
     model_norm = RNet(n_classes=6)
-    model_norm.load_state_dict(state_dict)
-        
-    model = SSLModule(ssl_path=args.checkpoint)
-    model.to(device)
-    model = model.eval()
-    
-    norm = T.Normalize((0.420, 0.411, 0.296), (0.213, 0.156, 0.143))
-    norm = norm.to(device)
-    
-    evaluate(
-        model, norm, model_norm,
-        preprocessed_dir=args.preprocessed_dir,
-        bs=16,
-        trained_rgb=args.trained_rgb,
-        normtype=args.normtype,
-        device=device,
-        display=args.display,
-        image_dir=args.image_dir
-    )
+    model_norm.load_state_dict(updated_state_dict)
 
 if __name__ == '__main__':
     main()
