@@ -155,10 +155,13 @@ def main():
     model_norm = RNet(n_classes=6)
     model_norm.load_state_dict(updated_state_dict)
     
+    model = SSLModule(ssl_path=args.checkpoint)
+    model.to('cuda:0')
+    
     print("Starting evaluation...")
     evaluate(
-        model=None,  # Placeholder for the actual model
-        norm=None,   # Placeholder for normalization function
+        model=model, 
+        norm=T.Normalize((0.420, 0.411, 0.296), (0.213, 0.156, 0.143)), 
         model_norm=model_norm, 
         preprocessed_dir=args.preprocessed_dir, 
         image_dir=args.image_dir
