@@ -80,11 +80,13 @@ class AerialImageDataset(torch.utils.data.Dataset):
         self.transform = transform
         self.size = size
         
-        # Precompute all patches from all images
+        # Precompute patches for all images and store image dimensions
         self.patches = []
+        self.image_sizes = {}  # {str(path): (width, height)}
         for img_path in self.image_paths:
             with Image.open(img_path) as img:
                 img_width, img_height = img.size
+            self.image_sizes[str(img_path)] = (img_width, img_height)
             # Compute how many patches fit horizontally and vertically
             x_count = img_width // self.size
             y_count = img_height // self.size
@@ -106,7 +108,12 @@ class AerialImageDataset(torch.utils.data.Dataset):
             img_patch = self.transform(img_patch)
         else:
             img_patch = T.ToTensor()(img_patch)
-        return {'img': img_patch, 'img_path': str(img_path), 'x_coord': x, 'y_coord': y}
+        return {
+            'img': img_patch, 
+            'img_path': str(img_path), 
+            'x_coord': x, 
+            'y_coord': y
+        }
 
 def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False, normtype=2, device='cuda:0', display=False, image_dir='./data/images/'):
     print("normtype", normtype)    
@@ -118,6 +125,24 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
     output_images_dir = preprocessed_path / 'predicted_canopy_heights'
     output_images_dir.mkdir(parents=True, exist_ok=True)
 
+    # Dictionary to store assembled predictions for each image
+    # predictions_per_image = {
+    #   img_path_str: {
+    #       'width': W, 'height': H,
+    #       'array': np.zeros((H, W), dtype=float),
+    #       'count_map': np.zeros((H, W), dtype=int) # if needed to handle overlaps
+    #   }
+    # }
+    predictions_per_image = {}
+    for ipath in ds.image_paths:
+        p_str = str(ipath)
+        W, H = ds.image_sizes[p_str]
+        predictions_per_image[p_str] = {
+            'width': W,
+            'height': H,
+            'array': np.zeros((H, W), dtype=np.float32)
+        }
+        
     model.eval()
     with torch.no_grad():
         for batch in tqdm(dataloader):
@@ -131,18 +156,26 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
             
             # Model prediction
             pred = model(img_norm)
-            pred = pred.cpu().detach().relu()
+            pred = pred.cpu().detach().relu().numpy()  # shape: (N,1,256,256)
             
-            # Save predictions as TIFF (float32)
-            for i in range(pred.size(0)):
-                pred_img = pred[i][0].numpy()
-                pred_image = Image.fromarray(pred_img.astype('float32'), mode='F')
-                # Include patch coordinates in the output filename
-                base_name = Path(img_paths[i]).stem
-                tif_output_path = output_images_dir / f"{base_name}_y{ys[i]}_x{xs[i]}_pred.tif"
-                pred_image.save(tif_output_path)
+            for i in range(pred.shape[0]):
+                p_str = img_paths[i]
+                x = xs[i]
+                y = ys[i]
+                pred_img = pred[i,0,:,:]  # a 256x256 patch
+                
+                # Insert the patch predictions back into the large array
+                predictions_per_image[p_str]['array'][y:y+256, x:x+256] = pred_img
 
-    print(f"Prediction tiles (patches) saved under {output_images_dir}")
+    # After processing all patches for all images, save the assembled images
+    for p_str, data in predictions_per_image.items():
+        out_array = data['array']
+        out_image = Image.fromarray(out_array, mode='F')
+        base_name = Path(p_str).stem
+        tif_output_path = output_images_dir / f"{base_name}_pred.tif"
+        out_image.save(tif_output_path)
+
+    print(f"Prediction images saved under {output_images_dir}")
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run canopy height inference on aerial images.')
@@ -185,7 +218,7 @@ def main():
     norm = T.Normalize((0.420, 0.411, 0.296), (0.213, 0.156, 0.143))
     norm = norm.to(device)
     
-    # Evaluate using patch-based inference
+    # Evaluate using patch-based inference and then assemble
     evaluate(
         model,
         norm,
