@@ -116,27 +116,28 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
     with torch.no_grad():
         for batch in tqdm(dataloader):
             patches = batch[0]
-            img_path = patches[0]['img_path']
-            img_width = patches[0]['img_width']
-            img_height = patches[0]['img_height']
-            
-            reassembled_image = np.zeros((img_height, img_width), dtype=np.float32)
-            
-            for patch in patches:
-                img = patch['img'].unsqueeze(0).to(device)
-                x_idx, y_idx = patch['x_idx'], patch['y_idx']
+            if isinstance(patches, list) and len(patches) > 0:
+                img_path = patches[0]['img_path']
+                img_width = patches[0]['img_width']
+                img_height = patches[0]['img_height']
                 
-                img_norm = norm(img)
-                pred = model(img_norm)
-                pred = pred.cpu().detach().relu()
+                reassembled_image = np.zeros((img_height, img_width), dtype=np.float32)
                 
-                pred_img = pred[0][0].numpy()
-                h, w = pred_img.shape
-                reassembled_image[y_idx:y_idx+h, x_idx:x_idx+w] = pred_img
+                for patch in patches:
+                    img = patch['img'].unsqueeze(0).to(device)
+                    x_idx, y_idx = patch['x_idx'], patch['y_idx']
+                    
+                    img_norm = norm(img)
+                    pred = model(img_norm)
+                    pred = pred.cpu().detach().relu()
+                    
+                    pred_img = pred[0][0].numpy()
+                    h, w = pred_img.shape
+                    reassembled_image[y_idx:y_idx+h, x_idx:x_idx+w] = pred_img
 
-            reassembled_image_pil = Image.fromarray(reassembled_image.astype('float32'), mode='F')
-            output_path = output_images_dir / (Path(img_path).stem + '_reassembled.tif')
-            reassembled_image_pil.save(output_path)
+                reassembled_image_pil = Image.fromarray(reassembled_image.astype('float32'), mode='F')
+                output_path = output_images_dir / (Path(img_path).stem + '_reassembled.tif')
+                reassembled_image_pil.save(output_path)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run canopy height inference on aerial images.')
