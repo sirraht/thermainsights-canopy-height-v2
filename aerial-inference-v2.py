@@ -80,18 +80,33 @@ class AerialImageDataset(torch.utils.data.Dataset):
         self.transform = transform
         self.size = size
         
+        # Precompute all patches from all images
+        self.patches = []
+        for img_path in self.image_paths:
+            with Image.open(img_path) as img:
+                img_width, img_height = img.size
+            # Compute how many patches fit horizontally and vertically
+            x_count = img_width // self.size
+            y_count = img_height // self.size
+            for yi in range(y_count):
+                for xi in range(x_count):
+                    x = xi * self.size
+                    y = yi * self.size
+                    self.patches.append((img_path, x, y))
+
     def __len__(self):
-        return len(self.image_paths)
+        return len(self.patches)
         
     def __getitem__(self, idx):
-        img_path = self.image_paths[idx]
+        img_path, x, y = self.patches[idx]
         img = Image.open(img_path).convert('RGB')
-        img = img.resize((self.size, self.size), Image.BILINEAR)
+        # Crop the 256x256 patch at original resolution
+        img_patch = img.crop((x, y, x+self.size, y+self.size))
         if self.transform:
-            img = self.transform(img)
+            img_patch = self.transform(img_patch)
         else:
-            img = T.ToTensor()(img)
-        return {'img': img, 'img_path': str(img_path)}
+            img_patch = T.ToTensor()(img_patch)
+        return {'img': img_patch, 'img_path': str(img_path), 'x_coord': x, 'y_coord': y}
 
 def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False, normtype=2, device='cuda:0', display=False, image_dir='./data/images/'):
     print("normtype", normtype)    
@@ -108,6 +123,8 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
         for batch in tqdm(dataloader):
             img = batch['img'].to(device)
             img_paths = batch['img_path']
+            xs = batch['x_coord'].cpu().numpy()
+            ys = batch['y_coord'].cpu().numpy()
             
             # Apply normalization
             img_norm = norm(img)
@@ -120,12 +137,12 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
             for i in range(pred.size(0)):
                 pred_img = pred[i][0].numpy()
                 pred_image = Image.fromarray(pred_img.astype('float32'), mode='F')
-                # The tile name is something like tile_{y_index}_{x_index}_context
-                # We append "_pred.tif"
-                tif_output_path = output_images_dir / (Path(img_paths[i]).stem + '_pred.tif')
+                # Include patch coordinates in the output filename
+                base_name = Path(img_paths[i]).stem
+                tif_output_path = output_images_dir / f"{base_name}_y{ys[i]}_x{xs[i]}_pred.tif"
                 pred_image.save(tif_output_path)
 
-    print(f"Prediction tiles saved under {output_images_dir}")
+    print(f"Prediction tiles (patches) saved under {output_images_dir}")
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run canopy height inference on aerial images.')
@@ -168,7 +185,7 @@ def main():
     norm = T.Normalize((0.420, 0.411, 0.296), (0.213, 0.156, 0.143))
     norm = norm.to(device)
     
-    # Evaluate 
+    # Evaluate using patch-based inference
     evaluate(
         model,
         norm,
