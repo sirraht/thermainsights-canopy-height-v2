@@ -178,8 +178,8 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
         
         # Test read
         with rasterio.open(str(tif_output_path)) as test_dst:
-        test_data = test_dst.read(1)
-        print(f"Stats for {tif_output_path}: min={test_data.min()}, max={test_data.max()}, mean={test_data.mean()}")
+            test_data = test_dst.read(1)
+            print(f"Stats for {tif_output_path}: min={test_data.min()}, max={test_data.max()}, mean={test_data.mean()}")
 
     print(f"Prediction images saved under {output_images_dir}")
 
