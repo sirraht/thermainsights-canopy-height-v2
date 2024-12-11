@@ -9,11 +9,10 @@ from PIL import Image, ImageOps
 from glob import glob
 
 class Preprocess:
-    def __init__(self, input_dir, output_dir, tile_size=256, border_pixels=10):
+    def __init__(self, input_dir, output_dir, tile_size=256):
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.tile_size = tile_size
-        self.border_pixels = border_pixels
 
     def save_image(self, image_array, output_path):
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -21,6 +20,7 @@ class Preprocess:
         image.save(output_path)
 
     def pad_or_crop_to_size(self, img_data, target_size):
+        # Ensure the image is exactly target_size x target_size
         img = Image.fromarray(img_data.astype('uint8'), 'RGB')
 
         if img.size[0] < target_size[0] or img.size[1] < target_size[1]:
@@ -32,12 +32,6 @@ class Preprocess:
 
     def split_geotiff(self, geotiff_path, output_subdir):
         tile_size = self.tile_size
-        border_pixels = self.border_pixels
-
-        if not (0 <= border_pixels < 50):
-            raise ValueError("border_pixels must be between 0 and 50")
-
-        extra_context = int(tile_size * (border_pixels / 100.0))
 
         with rasterio.open(geotiff_path) as src:
             width = src.width
@@ -53,9 +47,7 @@ class Preprocess:
                 "crs": crs.to_string(),
                 "width": width,
                 "height": height,
-                "tile_size": tile_size,
-                "border_pixels": border_pixels,
-                "extra_context": extra_context
+                "tile_size": tile_size
             }
             metadata_filename = os.path.join(output_subdir, 'image_metadata.json')
             with open(metadata_filename, 'w') as f:
@@ -66,20 +58,14 @@ class Preprocess:
 
             for y in range(0, height, tile_size):
                 for x in range(0, width, tile_size):
-                    window = Window(
-                        max(0, x - extra_context),
-                        max(0, y - extra_context),
-                        min(tile_size + 2 * extra_context, width - x + extra_context),
-                        min(tile_size + 2 * extra_context, height - y + extra_context)
-                    )
-
+                    window = Window(x, y, min(tile_size, width - x), min(tile_size, height - y))
                     img_data = src.read([1, 2, 3], window=window)
 
                     if img_data.size == 0:
                         continue
 
                     img_data = np.moveaxis(img_data, 0, -1)
-                    out_size = (tile_size + 2 * extra_context, tile_size + 2 * extra_context)
+                    out_size = (tile_size, tile_size)
                     img_data = self.pad_or_crop_to_size(img_data, out_size)
 
                     x_index = x // tile_size
@@ -94,10 +80,10 @@ class Preprocess:
                         'x_index': x_index,
                         'y_index': y_index,
                         'input_filename': input_tile_filename,
-                        'output_filename': pred_tile_filename,  # Predicted tile filename expected after inference
-                        'imsize': tile_size + 2 * extra_context,
-                        'bord_x': extra_context,
-                        'bord_y': extra_context
+                        'output_filename': pred_tile_filename,
+                        'imsize': tile_size,
+                        'bord_x': 0,
+                        'bord_y': 0
                     }
                     tile_records.append(record)
                     tile_index += 1
@@ -124,19 +110,30 @@ class Preprocess:
             print(f"Processing file {geotiff_path}")
             self.split_geotiff(geotiff_path, output_subdir)
 
+def nearest_multiple_of_256(value):
+    # Find the closest multiple of 256 to 'value'
+    lower = (value // 256) * 256
+    upper = lower + 256
+    if (value - lower) < (upper - value):
+        return lower if lower > 0 else 256
+    else:
+        return upper
+
 def main():
     parser = argparse.ArgumentParser(description="Preprocess aerial images for canopy height inference.")
     parser.add_argument('--input_dir', type=str, required=True, help='Directory containing input GeoTIFF images.')
     parser.add_argument('--output_dir', type=str, required=True, help='Directory to save processed tiles and CSV.')
-    parser.add_argument('--tile_size', type=int, default=256, help='Size of each tile in pixels (default: 256).')
-    parser.add_argument('--border_pixels', type=int, default=10, help='Percentage of border pixels for extra context (default: 10).')
+    parser.add_argument('--tile_size', type=int, default=256, help='Desired size of each tile in pixels (default: 256).')
     args = parser.parse_args()
+
+    # Adjust tile_size to the nearest multiple of 256
+    adjusted_tile_size = nearest_multiple_of_256(args.tile_size)
+    print(f"Adjusted tile_size from {args.tile_size} to {adjusted_tile_size} to match a multiple of 256.")
 
     preprocessor = Preprocess(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
-        tile_size=args.tile_size,
-        border_pixels=args.border_pixels
+        tile_size=adjusted_tile_size
     )
     preprocessor.run()
 
