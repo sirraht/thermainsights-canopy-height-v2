@@ -8,6 +8,7 @@ from pathlib import Path
 import torch.nn as nn
 from tqdm import tqdm
 from PIL import Image
+import rasterio
 import torchvision
 import pytorch_lightning as pl
 from models.backbone import SSLVisionTransformer
@@ -174,6 +175,11 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
         base_name = Path(p_str).stem
         tif_output_path = output_images_dir / f"{base_name}_pred.tif"
         out_image.save(tif_output_path)
+        
+        # Test read
+        with rasterio.open(str(tif_output_path)) as test_dst:
+        test_data = test_dst.read(1)
+        print(f"Stats for {tif_output_path}: min={test_data.min()}, max={test_data.max()}, mean={test_data.mean()}")
 
     print(f"Prediction images saved under {output_images_dir}")
 
