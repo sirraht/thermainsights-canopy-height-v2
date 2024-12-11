@@ -4,7 +4,6 @@ import json
 import rasterio
 import pandas as pd
 import numpy as np
-from PIL import Image
 from tqdm import tqdm
 
 class ReassembleToImage:
@@ -31,8 +30,6 @@ class ReassembleToImage:
         original_width = metadata['width']
         original_height = metadata['height']
         tile_size = metadata['tile_size']
-        # border_pixels = metadata['border_pixels']  # Not needed here
-        # extra_context = metadata['extra_context']  # Not needed here
 
         # Load tile metadata CSV
         metadata_csv = os.path.join(os.path.dirname(metadata_json), 'tile_metadata.csv')
@@ -41,38 +38,33 @@ class ReassembleToImage:
 
         metadata_df = pd.read_csv(metadata_csv)
 
-        # Use the original image dimensions directly to avoid shape mismatches
-        reassembled_width = original_width
-        reassembled_height = original_height
-
         # Create an empty array for the reassembled image (float32)
-        reassembled_image = np.zeros((reassembled_height, reassembled_width), dtype=np.float32)
+        reassembled_image = np.zeros((original_height, original_width), dtype=np.float32)
 
-        # We'll place tiles based on x_index and y_index
-        # Each tile corresponds to a top-left corner at (y_index * tile_size, x_index * tile_size)
+        # Iterate over each tile record and place it into the final mosaic
         for _, row in tqdm(metadata_df.iterrows(), desc=f'Reassembling tiles in {inferred_tiles_dir}', total=len(metadata_df)):
             tile_path = os.path.join(inferred_tiles_dir, row['output_filename'])
             if not os.path.exists(tile_path):
                 print(f"Tile {tile_path} not found, skipping.")
                 continue
 
-            tile_image = Image.open(tile_path)  # Predicted tiles are 'F' (float) mode
-            tile_array = np.array(tile_image, dtype=np.float32)
+            # Read the predicted tile using rasterio to correctly handle float data
+            with rasterio.open(tile_path) as src_tile:
+                tile_array = src_tile.read(1).astype(np.float32)
 
             x_index = row['x_index']
             y_index = row['y_index']
-            
+
             # Calculate the position where this tile should be placed in the mosaic
             x_pos = x_index * tile_size
             y_pos = y_index * tile_size
 
-            # Determine the valid region to place the tile
+            # Determine the region to place the tile
             tile_h, tile_w = tile_array.shape
-            # Ensure we do not exceed the boundaries of the final mosaic
-            y_end = min(y_pos + tile_h, reassembled_height)
-            x_end = min(x_pos + tile_w, reassembled_width)
+            y_end = min(y_pos + tile_h, original_height)
+            x_end = min(x_pos + tile_w, original_width)
 
-            # Crop the tile if it extends beyond the image boundary (in case of partial/edge tiles)
+            # Crop the tile if it extends beyond image boundary
             tile_array = tile_array[0:(y_end - y_pos), 0:(x_end - x_pos)]
 
             reassembled_image[y_pos:y_end, x_pos:x_end] = tile_array
@@ -104,7 +96,7 @@ class ReassembleToImage:
             os.makedirs(output_subdir, exist_ok=True)
             self.reassemble_tiles_in_folder(self.tiles_dir, self.metadata_json_path, output_subdir)
         else:
-            # Original behavior: look for inferred tiles directories inside tiles_dir
+            # Otherwise, look for inferred tiles directories inside tiles_dir
             inferred_tiles_folders = [
                 os.path.join(self.tiles_dir, d) for d in os.listdir(self.tiles_dir) if os.path.isdir(os.path.join(self.tiles_dir, d))
             ]
