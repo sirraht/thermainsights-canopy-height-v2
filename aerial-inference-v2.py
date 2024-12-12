@@ -176,11 +176,6 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
         tif_output_path = output_images_dir / f"{base_name}_pred.tif"
         out_image.save(tif_output_path)
         
-        # Test read
-        with rasterio.open(str(tif_output_path)) as test_dst:
-            test_data = test_dst.read(1)
-            print(f"Stats for {tif_output_path}: min={test_data.min()}, max={test_data.max()}, mean={test_data.mean()}")
-
     print(f"Prediction images saved under {output_images_dir}")
 
 def parse_args():
