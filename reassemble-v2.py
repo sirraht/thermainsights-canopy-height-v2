@@ -52,11 +52,8 @@ class ReassembleToImage:
             with rasterio.open(tile_path) as src_tile:
                 tile_array = src_tile.read(1).astype(np.float32)
             
-            # flipping x_index, y_index - Reverse the interpretation of x_index and y_index from the CSV when placing tiles. For example, if the CSV says (x_index=1, y_index=0) for tile_0_1_context.png, then y_index from the tile’s perspective is actually the CSV’s x_index, and x_index is the CSV’s y_index.
-            x_index = row['y_index']
-            y_index = row['x_index']
-            #x_index = row['x_index']
-            #y_index = row['y_index']
+            x_index = row['x_index']
+            y_index = row['y_index']
 
             # Calculate the position where this tile should be placed in the mosaic
             x_pos = x_index * tile_size
