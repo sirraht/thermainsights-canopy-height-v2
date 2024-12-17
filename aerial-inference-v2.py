@@ -70,7 +70,7 @@ class SSLModule(pl.LightningModule):
         return x
 
 class AerialImageDataset(torch.utils.data.Dataset):
-    def __init__(self, image_dir, transform=None, size=256):
+    def __init__(self, image_dir, transform=None, size=256, overlap=64):
         self.image_dir = Path(image_dir)
         self.image_paths = (
             list(self.image_dir.glob('*.jpg')) +
@@ -80,21 +80,22 @@ class AerialImageDataset(torch.utils.data.Dataset):
         )
         self.transform = transform
         self.size = size
+        self.overlap = overlap
+        self.step = self.size - self.overlap
         
-        # Precompute patches for all images and store image dimensions
         self.patches = []
         self.image_sizes = {}  # {str(path): (width, height)}
         for img_path in self.image_paths:
             with Image.open(img_path) as img:
                 img_width, img_height = img.size
             self.image_sizes[str(img_path)] = (img_width, img_height)
-            # Compute how many patches fit horizontally and vertically
-            x_count = img_width // self.size
-            y_count = img_height // self.size
-            for yi in range(y_count):
-                for xi in range(x_count):
-                    x = xi * self.size
-                    y = yi * self.size
+            
+            # Compute patches using a sliding window approach
+            x_positions = list(range(0, img_width - self.size + 1, self.step))
+            y_positions = list(range(0, img_height - self.size + 1, self.step))
+            
+            for y in y_positions:
+                for x in x_positions:
                     self.patches.append((img_path, x, y))
 
     def __len__(self):
@@ -103,7 +104,7 @@ class AerialImageDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         img_path, x, y = self.patches[idx]
         img = Image.open(img_path).convert('RGB')
-        # Crop the 256x256 patch at original resolution
+        # Crop the patch
         img_patch = img.crop((x, y, x+self.size, y+self.size))
         if self.transform:
             img_patch = self.transform(img_patch)
@@ -116,9 +117,9 @@ class AerialImageDataset(torch.utils.data.Dataset):
             'y_coord': y
         }
 
-def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False, normtype=2, device='cuda:0', display=False, image_dir='./data/images/'):
+def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False, normtype=2, device='cuda:0', display=False, image_dir='./data/images/', overlap=64):
     print("normtype", normtype)    
-    ds = AerialImageDataset(image_dir=image_dir, size=256)
+    ds = AerialImageDataset(image_dir=image_dir, size=256, overlap=overlap)
     dataloader = torch.utils.data.DataLoader(ds, batch_size=bs, shuffle=False, num_workers=4)
         
     # Save predictions under preprocessed_dir/predicted_canopy_heights
@@ -126,14 +127,6 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
     output_images_dir = preprocessed_path / 'predicted_canopy_heights'
     output_images_dir.mkdir(parents=True, exist_ok=True)
 
-    # Dictionary to store assembled predictions for each image
-    # predictions_per_image = {
-    #   img_path_str: {
-    #       'width': W, 'height': H,
-    #       'array': np.zeros((H, W), dtype=float),
-    #       'count_map': np.zeros((H, W), dtype=int) # if needed to handle overlaps
-    #   }
-    # }
     predictions_per_image = {}
     for ipath in ds.image_paths:
         p_str = str(ipath)
@@ -141,7 +134,8 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
         predictions_per_image[p_str] = {
             'width': W,
             'height': H,
-            'array': np.zeros((H, W), dtype=np.float32)
+            'sum_array': np.zeros((H, W), dtype=np.float32),
+            'count_array': np.zeros((H, W), dtype=np.float32)
         }
         
     model.eval()
@@ -165,12 +159,16 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
                 y = ys[i]
                 pred_img = pred[i,0,:,:]  # a 256x256 patch
                 
-                # Insert the patch predictions back into the large array
-                predictions_per_image[p_str]['array'][y:y+256, x:x+256] = pred_img
+                # Add to sum_array and increment count_array
+                predictions_per_image[p_str]['sum_array'][y:y+256, x:x+256] += pred_img
+                predictions_per_image[p_str]['count_array'][y:y+256, x:x+256] += 1
 
-    # After processing all patches for all images, save the assembled images
+    # Blend and save
     for p_str, data in predictions_per_image.items():
-        out_array = data['array']
+        sum_array = data['sum_array']
+        count_array = data['count_array']
+        count_array[count_array == 0] = 1
+        out_array = sum_array / count_array
         out_image = Image.fromarray(out_array, mode='F')
         base_name = Path(p_str).stem
         tif_output_path = output_images_dir / f"{base_name}_pred.tif"
@@ -187,6 +185,7 @@ def parse_args():
     parser.add_argument('--normtype', type=int, help='0: no norm; 1: old norm; 2: new norm', default=2) 
     parser.add_argument('--display', action='store_true', help='If set, save additional PNG visualizations (not required).')
     parser.add_argument('--image_dir', type=str, help='Directory containing input aerial tiles', default='./data/images/')
+    parser.add_argument('--overlap', type=int, help='Overlap in pixels for sliding window patches', default=64)
     args = parser.parse_args()
     return args
 
@@ -219,7 +218,6 @@ def main():
     norm = T.Normalize((0.420, 0.411, 0.296), (0.213, 0.156, 0.143))
     norm = norm.to(device)
     
-    # Evaluate using patch-based inference and then assemble
     evaluate(
         model,
         norm,
@@ -230,7 +228,8 @@ def main():
         normtype=args.normtype,
         device=device,
         display=args.display,
-        image_dir=args.image_dir
+        image_dir=args.image_dir,
+        overlap=args.overlap
     )
 
 if __name__ == '__main__':
