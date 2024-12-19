@@ -84,13 +84,12 @@ class AerialImageDataset(torch.utils.data.Dataset):
         self.step = self.size - self.overlap
         
         self.patches = []
-        self.image_sizes = {}  # {str(path): (width, height)}
+        self.image_sizes = {}
         for img_path in self.image_paths:
             with Image.open(img_path) as img:
                 img_width, img_height = img.size
             self.image_sizes[str(img_path)] = (img_width, img_height)
             
-            # Compute patches using a sliding window approach
             x_positions = list(range(0, img_width - self.size + 1, self.step))
             y_positions = list(range(0, img_height - self.size + 1, self.step))
             
@@ -104,7 +103,6 @@ class AerialImageDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         img_path, x, y = self.patches[idx]
         img = Image.open(img_path).convert('RGB')
-        # Crop the patch
         img_patch = img.crop((x, y, x+self.size, y+self.size))
         if self.transform:
             img_patch = self.transform(img_patch)
@@ -122,7 +120,6 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
     ds = AerialImageDataset(image_dir=image_dir, size=256, overlap=overlap)
     dataloader = torch.utils.data.DataLoader(ds, batch_size=bs, shuffle=False, num_workers=4)
         
-    # Save predictions under preprocessed_dir/predicted_canopy_heights
     preprocessed_path = Path(preprocessed_dir)
     output_images_dir = preprocessed_path / 'predicted_canopy_heights'
     output_images_dir.mkdir(parents=True, exist_ok=True)
@@ -135,10 +132,25 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
             'width': W,
             'height': H,
             'sum_array': np.zeros((H, W), dtype=np.float32),
-            'count_array': np.zeros((H, W), dtype=np.float32)
+            'weight_sum_array': np.zeros((H, W), dtype=np.float32)
         }
-        
+
     model.eval()
+
+    # Create a spatial weight mask
+    tile_size = 256
+    # Example: Gaussian weighting mask that peaks at center and tapers at edges.
+    center = tile_size // 2
+    sigma = overlap / 2.0  # Adjust sigma as needed for smoother transitions
+    y_coords, x_coords = np.ogrid[:tile_size, :tile_size]
+    dist_sq = (x_coords - center)**2 + (y_coords - center)**2
+    weight_mask = np.exp(-dist_sq / (2.0 * sigma * sigma))
+    weight_mask /= weight_mask.max()  # normalize to 1 at center
+
+    # Convert weight_mask to torch if you want to do on GPU or stay on CPU if blending on CPU
+    # Here we can keep it on CPU for simplicity.
+    weight_mask = weight_mask.astype(np.float32)
+
     with torch.no_grad():
         for batch in tqdm(dataloader):
             img = batch['img'].to(device)
@@ -146,10 +158,8 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
             xs = batch['x_coord'].cpu().numpy()
             ys = batch['y_coord'].cpu().numpy()
             
-            # Apply normalization
             img_norm = norm(img)
             
-            # Model prediction
             pred = model(img_norm)
             pred = pred.cpu().detach().relu().numpy()  # shape: (N,1,256,256)
             
@@ -159,16 +169,18 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
                 y = ys[i]
                 pred_img = pred[i,0,:,:]  # a 256x256 patch
                 
-                # Add to sum_array and increment count_array
-                predictions_per_image[p_str]['sum_array'][y:y+256, x:x+256] += pred_img
-                predictions_per_image[p_str]['count_array'][y:y+256, x:x+256] += 1
+                # Apply weighted blending
+                # Multiply patch by weight_mask before adding
+                predictions_per_image[p_str]['sum_array'][y:y+256, x:x+256] += pred_img * weight_mask
+                predictions_per_image[p_str]['weight_sum_array'][y:y+256, x:x+256] += weight_mask
 
-    # Blend and save
+    # After processing all patches, compute weighted average
     for p_str, data in predictions_per_image.items():
         sum_array = data['sum_array']
-        count_array = data['count_array']
-        count_array[count_array == 0] = 1
-        out_array = sum_array / count_array
+        weight_sum_array = data['weight_sum_array']
+        # Avoid division by zero just in case
+        weight_sum_array[weight_sum_array == 0] = 1
+        out_array = sum_array / weight_sum_array
         out_image = Image.fromarray(out_array, mode='F')
         base_name = Path(p_str).stem
         tif_output_path = output_images_dir / f"{base_name}_pred.tif"
