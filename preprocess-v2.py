@@ -10,7 +10,7 @@ from glob import glob
 import math
 
 class Preprocess:
-    def __init__(self, input_dir, output_dir, user_tile_size):
+    def __init__(self, input_dir, output_dir, user_tile_size, tile_overlap):
         self.patch_size = 256
         self.overlap = 64
         self.step = self.patch_size - self.overlap  # 192
@@ -19,7 +19,7 @@ class Preprocess:
 
         # Determine final tile size based on user input, ensuring tile_size = patch_size + n*step
         if user_tile_size is None:
-            # Default user request if none given
+            # Default if none given
             user_tile_size = 1024
 
         # Ensure user_tile_size >= patch_size
@@ -28,9 +28,18 @@ class Preprocess:
         # Compute n so that tile_size = patch_size + n*step is >= user_tile_size
         n = math.ceil((user_tile_size - self.patch_size) / self.step)
         tile_size = self.patch_size + n * self.step
-
         self.tile_size = tile_size
-        print(f"Using a tile size of {self.tile_size}x{self.tile_size}, step={self.step} for splitting.")
+
+        # Tile overlap parameter
+        # Default tile_overlap=0 means no overlap between tiles
+        if tile_overlap is None:
+            tile_overlap = 0
+        self.tile_overlap = tile_overlap
+
+        # Print out chosen parameters
+        print(f"Using tile size: {self.tile_size}x{self.tile_size}")
+        print(f"Patch size: {self.patch_size}, Overlap: {self.overlap}, Step: {self.step}")
+        print(f"Tile overlap: {self.tile_overlap}")
 
     def save_image(self, image_array, output_path):
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -40,6 +49,8 @@ class Preprocess:
     def split_geotiff(self, geotiff_path, output_subdir):
         tile_size = self.tile_size
         step = self.step
+        tile_overlap = self.tile_overlap
+        stride = tile_size - tile_overlap
 
         with rasterio.open(geotiff_path) as src:
             width = src.width
@@ -60,8 +71,7 @@ class Preprocess:
             if (new_width < width) or (new_height < height):
                 print(f"Cropping image {os.path.basename(geotiff_path)} from {width}x{height} "
                       f"to {new_width}x{new_height} so dimensions are multiples of {step}.")
-                print("This ensures that when we run overlapping inference patches, "
-                      "the entire image will be fully covered without gaps.")
+                print("Ensuring coverage for overlapping patches.")
             else:
                 print(f"Image {os.path.basename(geotiff_path)} dimensions are already multiples of {step}, "
                       f"no cropping needed. Dimensions: {width}x{height}")
@@ -80,7 +90,8 @@ class Preprocess:
             "crs": crs.to_string(),
             "width": new_width,
             "height": new_height,
-            "tile_size": tile_size
+            "tile_size": tile_size,
+            "tile_overlap": tile_overlap
         }
         metadata_filename = os.path.join(output_subdir, 'image_metadata.json')
         with open(metadata_filename, 'w') as f:
@@ -89,16 +100,15 @@ class Preprocess:
         tile_records = []
         tile_index = 0
 
-        # Now split the cropped image into tiles of size tile_size x tile_size
-        # ensuring it's set to patch_size + n*step for some n
-        for y in range(0, new_height, tile_size):
-            for x in range(0, new_width, tile_size):
+        # Use stride to create overlapping tiles
+        for y in range(0, new_height, stride):
+            for x in range(0, new_width, stride):
                 tile_w = min(tile_size, new_width - x)
                 tile_h = min(tile_size, new_height - y)
                 img_data = cropped_img[y:y+tile_h, x:x+tile_w, :]
 
-                y_index = y // tile_size
-                x_index = x // tile_size
+                y_index = y // stride
+                x_index = x // stride
                 input_tile_filename = f'tile_{y_index}_{x_index}_context.png'
                 pred_tile_filename = f'tile_{y_index}_{x_index}_context_pred.tif'
 
@@ -111,8 +121,8 @@ class Preprocess:
                     'input_filename': input_tile_filename,
                     'output_filename': pred_tile_filename,
                     'imsize': tile_size,
-                    'bord_x': 0,
-                    'bord_y': 0
+                    'bord_x': tile_overlap if x + tile_size < new_width else 0,
+                    'bord_y': tile_overlap if y + tile_size < new_height else 0
                 }
                 tile_records.append(record)
                 tile_index += 1
@@ -145,12 +155,15 @@ def main():
     parser.add_argument('--output_dir', type=str, required=True, help='Directory to save processed tiles and CSV.')
     parser.add_argument('--user_tile_size', type=int, default=None,
                         help='Optional desired tile dimension. Will be adjusted to patch_size + n*step.')
+    parser.add_argument('--tile_overlap', type=int, default=0,
+                        help='Number of pixels of overlap between tiles.')
     args = parser.parse_args()
 
     preprocessor = Preprocess(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
-        user_tile_size=args.user_tile_size
+        user_tile_size=args.user_tile_size,
+        tile_overlap=args.tile_overlap
     )
     preprocessor.run()
 
