@@ -174,6 +174,8 @@ def evaluate(model, norm, model_norm, preprocessed_dir, bs=32, trained_rgb=False
                 predictions_per_image[p_str]['sum_array'][y:y+256, x:x+256] += pred_img * weight_mask
                 predictions_per_image[p_str]['weight_sum_array'][y:y+256, x:x+256] += weight_mask
 
+    print("Weight mask min:", weight_mask.min(), "max:", weight_mask.max(), "mean:", weight_mask.mean())
+
     # After processing all patches, compute weighted average
     for p_str, data in predictions_per_image.items():
         sum_array = data['sum_array']
