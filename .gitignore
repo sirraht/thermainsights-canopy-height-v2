@@ -1,6 +1,7 @@
 data/
 saved_checkpoints/
-
+.vscode/
+thermainsights-website.code-workspace
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
