@@ -2,11 +2,13 @@
 
 A Python-based pipeline for processing and converting canopy height model (CHM) data into Cloud-Optimized GeoTIFFs (COGs) for efficient streaming via titiler on AWS Lambda.
 
+Forked from [Meta High Res Canopy Height](https://github.com/facebookresearch/HighResCanopyHeight).
+
 ## Overview
 
 This project provides tools to:
 1. Preprocess aerial imagery into tiles
-2. Run canopy height inference using a vision transformer model
+2. Run canopy height inference using a Meta and WRI vision transformer model
 3. Reassemble predicted tiles into complete images
 4. Convert GeoTIFFs to Cloud-Optimized GeoTIFFs (COGs)
 
@@ -42,10 +44,14 @@ The COG conversion module (`geotif-to-cog.py`) handles:
 ```bash
 # Clone the repository
 git clone [repository-url]
-
-# Install dependencies
-pip install -r requirements.txt
 ```
+Follow instructions on the Meta repo for conda virtual environment creation and dependency installation.
+
+Access the pretrained model for aerial imagery inference via AWS S3 as noted in the Meta repo.  
+
+In the saved_checkpoints directory that you've downloaded, you'll find:
+* compressed_SSLhuge_aerial.pth (749M): The pretrained model you'll want to use for canopy height inference on aerial imagery, encoder trained on satellite images, decoder trained on aerial images.  
+* aerial_normalization_quantiles_predictor.ckpt: A model provided by Meta to predict the 95th and 5th percentiles of the corresponding images to automate color balancing.
 
 ## Usage
 
@@ -82,36 +88,11 @@ python geotif-to-cog.py \
   --tile_size 256
 ```
 
-## Model Architecture
-
-The system uses a Vision Transformer-based architecture with:
-- SSL pre-trained backbone
-- DPT-style decoder head
-- Adaptive patch processing
-- Weighted feature fusion
-
-## Requirements
-
-- Python 3.8+
-- PyTorch
-- rasterio
-- rio-cogeo
-- numpy
-- pandas
-- PIL
-
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
-
-## Contributing
-
-Contributions are welcome! Please read our [contributing guidelines](CONTRIBUTING.md) before submitting pull requests.
+This code and model weights are licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
-This project builds on several key technologies:
-- [Vision Transformers (ViT)](https://arxiv.org/abs/2010.11929)
-- [Dense Prediction Transformers (DPT)](https://arxiv.org/abs/2103.13413)
-- [Cloud-Optimized GeoTIFF specification](https://www.cogeo.org/)
-- [TiTiler](https://github.com/developmentseed/titiler) for cloud-native tile serving
+This project builds on and utilizes key technology from:
+- [Meta High Res Canopy Height](https://github.com/facebookresearch/HighResCanopyHeight)
