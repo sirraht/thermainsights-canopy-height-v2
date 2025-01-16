@@ -47,7 +47,7 @@ The COG conversion module (`geotif-to-cog.py`) handles:
 # Clone the repository
 git clone [repository-url]
 ```
-Follow instructions on the Meta repo for conda virtual environment creation and dependency installation.
+Follow instructions on the [Meta repo](https://github.com/facebookresearch/HighResCanopyHeight) for conda virtual environment creation and dependency installation.
 
 Access the pretrained model for aerial imagery inference via AWS S3 as noted in the Meta repo.  
 
