@@ -1,4 +1,4 @@
-# An Open Source Tree Canopy Height Processing Pipeline for Aerial Imagery
+# A Tree Canopy Height Processing Pipeline for Aerial Imagery
 
 A Python-based pipeline for processing and converting RGB aerial imagery into canopy height model (CHM) predictions.  AI, deep learning and transformer architectures are revolutionizing geospatial remote sensing analytics. The recent breakthroughs in natural language processing for model pretraining on large quantities of data have opened the way for similar foundation models in geospatial remote sensing.
 
