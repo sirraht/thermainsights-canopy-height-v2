@@ -1,8 +1,10 @@
-# Canopy Height Model Processing Pipeline
+# An Open Source Tree Canopy Height Processing Pipeline for Aerial Imagery
 
-A Python-based pipeline for processing and converting canopy height model (CHM) data into Cloud-Optimized GeoTIFFs (COGs) for efficient streaming via titiler on AWS Lambda.
+A Python-based pipeline for processing and converting RGB aerial imagery into canopy height model (CHM) predictions.  AI, deep learning and transformer architectures are revolutionizing geospatial remote sensing analytics. The recent breakthroughs in natural language processing for model pretraining on large quantities of data have opened the way for similar foundation models in geospatial remote sensing.
 
-Forked from [Meta High Res Canopy Height](https://github.com/facebookresearch/HighResCanopyHeight).
+For details of the Meta approach, see the paper HERE.
+
+ThermaInsights forked the [Meta High Res Canopy Height](https://github.com/facebookresearch/HighResCanopyHeight) repo and configured the aerial inference model to estimate tree canopy height from large format aerial imagery.  The value add is in the abilty to input a very large NAIP or other aerial image, and have the inference pipeline handle tiling and io for efficient memory management.
 
 ## Overview
 
